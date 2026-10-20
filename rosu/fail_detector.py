@@ -3,6 +3,9 @@
 from rosu.tosu import STATE_PLAY
 
 from rosu.tosu_enums import GameState, Mods
+from rosu.tosu_data_getter import TosuDataGetter
+
+get = TosuDataGetter().get
 
 UNFAILABLE_MODS = Mods.NoFail | Mods.Relax | Mods.Autoplay | Mods.Relax2 | Mods.Cinema
 
@@ -49,7 +52,7 @@ class FailDetector:
         
 
     def update(self, data: dict) -> bool:
-        state = data["state"]["number"]
+        state = get(data, ("state", "number"))
         
         # NOT IN GAMEPLAY
         if state != STATE_PLAY:
@@ -72,7 +75,7 @@ class FailDetector:
         if ignore_reason is not None:
             return False
 
-        hp = data["play"]["healthBar"]["normal"]
+        hp = get(data, ("play", "healthBar", "normal"))
 
         # IN GAMEPLAY; HP ABOVE 0
         # A drop to 0 means fail => arm the fail detector
@@ -97,14 +100,14 @@ class FailDetector:
         # TODO: test all this
         
         # CHECK FOR UNFAILABLE MODS
-        unfailable_mods_active = Mods(data["play"]["mods"]["number"] & UNFAILABLE_MODS)
+        unfailable_mods_active = Mods(get(data, ("play", "mods", "number")) & UNFAILABLE_MODS)
         if unfailable_mods_active:
             return f'unfailable mods: {str(unfailable_mods_active.name)}' # or unfailable_mods_active.name
     
         # CHECK IF SOMEONE ELSE IS PLAYING
         # for example, someone else's replay or spectating
-        player = data["play"]["playerName"]
-        profile = data["profile"]["name"]
+        player = get(data, ("play", "playerName"))
+        profile = get(data, ("profile", "name"))
         
         # either may not have been loaded into data by tosu yet on first update in a map
         if player and profile:

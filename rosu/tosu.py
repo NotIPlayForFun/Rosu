@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterator
+from typing import Any
 
 from websockets.sync.client import connect, ClientConnection
 
@@ -23,3 +24,4 @@ def listen(url: str = TOSU_URL) -> Iterator[dict]:
     with connect(url) as ws:
         for message in ws:
             yield json.loads(message)
+
