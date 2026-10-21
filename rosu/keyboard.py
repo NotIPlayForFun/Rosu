@@ -12,6 +12,12 @@ References:
 """
 
 import ctypes, ctypes.wintypes
+from enum import IntEnum, IntFlag
+import time
+
+
+# TODO: consider whether this should be a class, f.e. Keyboard, since then we don't have
+# to load user32 in a .py import, rather just in the instance of a class. Could make it singleton? probably overkill
 
 # Load the user32.dll, which contains SendInput
 user32 = ctypes.WinDLL("user32.dll", use_last_error=True)
@@ -90,17 +96,20 @@ class KEYBDINPUT(ctypes.Structure):
 #       * ctypes.c_void_p: a pointer, so pointer-sized by definition. Works, but it's
 #           semantically a pointer (0 reads back as None), odd for a number field.
   
-"""
-typedef struct tagMOUSEINPUT {
-  LONG      dx;
-  LONG      dy;
-  DWORD     mouseData;
-  DWORD     dwFlags;
-  DWORD     time;
-  ULONG_PTR dwExtraInfo; <-_PTR means an integer wide enough to hold a pointer on the current platform
-} MOUSEINPUT, *PMOUSEINPUT, *LPMOUSEINPUT;
-"""
 class MOUSEINPUT(ctypes.Structure):
+    """
+```c
+typedef struct tagMOUSEINPUT {
+    LONG      dx;
+    LONG      dy;
+    DWORD     mouseData;
+    DWORD     dwFlags;
+    DWORD     time;
+    ULONG_PTR dwExtraInfo;
+} MOUSEINPUT, *PMOUSEINPUT, *LPMOUSEINPUT;
+```
+'_PTR' means an integer wide enough to hold a pointer on the current platform
+    """
     _fields_ = [
         ("dx", ctypes.wintypes.LONG),
         ("dy", ctypes.wintypes.LONG),
@@ -115,16 +124,6 @@ class MOUSEINPUT(ctypes.Structure):
         ("dwExtraInfo", ctypes.wintypes.WPARAM), 
     ]
 
-"""
-typedef struct tagINPUT {
-  DWORD type;
-  union {
-    MOUSEINPUT    mi;
-    KEYBDINPUT    ki;
-    HARDWAREINPUT hi;
-  } DUMMYUNIONNAME;
-} INPUT, *PINPUT, *LPINPUT;
-"""
 class DUMMYUNIONNAME(ctypes.Union):
     _fields_ = [
         ("mi", MOUSEINPUT),
@@ -132,6 +131,18 @@ class DUMMYUNIONNAME(ctypes.Union):
         ("hi", HARDWAREINPUT),
     ]
 class INPUT(ctypes.Structure):
+    """
+    ```c
+    typedef struct tagINPUT {
+    DWORD type;
+    union {
+        MOUSEINPUT    mi;
+        KEYBDINPUT    ki;
+        HARDWAREINPUT hi;
+    } DUMMYUNIONNAME;
+    } INPUT, *PINPUT, *LPINPUT;
+    ```
+    """
     _anonymous_ = ("DUMMYUNIONNAME",)
     _fields_ = [
         ("type", ctypes.wintypes.DWORD),
@@ -148,18 +159,102 @@ UINT SendInput(
 user32.SendInput.argtypes = (ctypes.wintypes.UINT, ctypes.POINTER(INPUT), ctypes.wintypes.INT)
 user32.SendInput.restype = ctypes.wintypes.UINT
 
-# # Create test input and set ki directly (anonymous), then read back through the DUMMYUNIONNAME
-# # to confirm they are the same memory
-# test_input = INPUT()
-# test_input.ki.wVk = 0x41  # write through the short path
+# TODO: decide whether enums should go into separate file
+# TODO: decide whether the ctypes definitions (structures) should go into a separate file
+class KEYBDINPUT_FLAGS(IntFlag):
+    """
+    dwFlags for KEYBDINPUT. 
+    See https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput
+    """
+    KEYEVENTF_EXTENDEDKEY = 0x0001
+    """
+    KEYEVENTF_EXTENDEDKEY: If specified, the wScan scan code consists of a 
+    sequence of two bytes, where the first byte has a value of 0xE0. 
+    See Extended-Key Flag for more info.
+    """
+    KEYEVENTF_KEYUP = 0x0002
+    """
+    KEYEVENTF_KEYUP: If specified, the key is being released. 
+    If not specified, the key is being pressed.
+    """
+    KEYEVENTF_SCANCODE = 0x0008
+    """KEYEVENTF_SCANCODE: If specified, wScan identifies the key and wVk is ignored."""
+    KEYEVENTF_UNICODE = 0x0004
+    """
+    KEYEVENTF_UNICODE: If specified, the system synthesizes a VK_PACKET keystroke. 
+    The wVk parameter must be zero. This flag can only be combined with the 
+    KEYEVENTF_KEYUP flag. For more information, see the Remarks section.
+    """
 
-# # Values: both should print 65 (0x41)
-# print(test_input.ki.wVk, test_input.DUMMYUNIONNAME.ki.wVk)
+class INPUT_TYPES(IntEnum):
+    MOUSE = 0
+    KEYBOARD = 1
+    HARDWARE = 2
 
-# # Real C addresses: first two should be equal, third should be 8
-# a_short = ctypes.addressof(test_input.ki)
-# a_long = ctypes.addressof(test_input.DUMMYUNIONNAME.ki)
-# print(a_short, a_long, a_short - ctypes.addressof(test_input))
+class HW_SCAN_CODES(IntEnum):
+    F2 = 0x003C
 
-# should be 40
-# print(ctypes.sizeof(INPUT))
+# VK_F2 = 0x71
+# hw scan codes:
+# see https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input#scan-codes
+
+def send_key(hw_scan_code, keyup):
+    
+    flags = KEYBDINPUT_FLAGS.KEYEVENTF_SCANCODE | (keyup * KEYBDINPUT_FLAGS.KEYEVENTF_KEYUP)
+    # debug: test flags-setting
+    # print(f"Keyup: {keyup}")
+    # print(f"Flags: {flags.name}")
+    # Create INPUT structure for the event
+    # see https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input 
+    _input = INPUT(
+        type=INPUT_TYPES.KEYBOARD, # DWORD type: The type of the input event. 0=mouse, 1=keyboard, 2=hardware
+        ki=KEYBDINPUT(
+            wVk=0, # virtual key code. windows intuits it from the scan code
+            wScan=hw_scan_code, # code identifying the physical key 
+                                # (regardless of current keyboard layout)
+                                # used instead of wVk if KEYEVENTF_SCANCODE flag is set
+            dwFlags=flags,
+            time=0, # if 0, the system will provide the timestamp
+            dwExtraInfo=0,
+        )
+        # mi and hi = 0
+    )
+
+    result = user32.SendInput(
+        1,  # UINT cInputs: The number of structures in the pInputs array.
+        ctypes.byref(_input),
+        ctypes.sizeof(INPUT)
+    )
+    """
+    SendInput returns the number of events successfully inserted
+    into the keyboard or mouse input stream.
+    """
+    
+    # debug
+    # print(f"SendInput result: {result}")
+    
+    if result != 1:
+        # Get the windows error code through ctypes 
+        # This works if dlllib=ctypes.WinDLL("<dlllibname>"..., use_last_error=True)
+        error_code = ctypes.get_last_error()
+        error = ctypes.WinError(error_code)
+        error.add_note(
+            f"SendInput failed to insert a key-{'up' if keyup else 'down'}"
+            f" event for key with hardware scan code {hw_scan_code:#06X} into the"
+            f" forground application's keyboard input stream."
+        )
+        raise error
+
+# # test
+# send_key(hw_scan_code=HW_SCAN_CODES.F2, keyup=False)  # send F2 key release
+# send_key(hw_scan_code=HW_SCAN_CODES.F2, keyup=True )  # send F2 key press
+
+def press_F2(hold_time_s: float) -> None:
+    send_key(hw_scan_code=HW_SCAN_CODES.F2, keyup=False)
+    time.sleep(hold_time_s)
+    send_key(hw_scan_code=HW_SCAN_CODES.F2, keyup=True)
+
+# debug
+if __name__ == "__main__":
+    time.sleep(2)
+    press_F2(hold_time_s=5)

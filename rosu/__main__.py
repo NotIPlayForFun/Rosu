@@ -11,6 +11,7 @@ import time
 from rosu.tosu import STATE_PLAY, listen
 from rosu.fail_detector import FailDetector
 from rosu.tosu_data_getter import TosuDataError, TosuDataGetter
+import rosu.keyboard as kb
 
 get = TosuDataGetter().get
 
@@ -41,26 +42,39 @@ for data in listen():
         if get(state, ("number",)) != last_state_number:
             print(f"{t:7.2f}s  state: {get(state, ('name',))} ({get(state, ('number',))})")
             last_state_number = get(state, ("number",))
-            last_play_info = None  # so the first HP line of a new play always gets printed
+            last_hp = None  # so the first HP line of a new play always gets printed
 
-        # PRINT NEW PLAY_INFO (HP,...) DURING GAMEPLAY
+        # PRINT NEW HP DURING GAMEPLAY
         if get(state, ("number",)) == STATE_PLAY:
             hp = get(data, ("play", "healthBar", "normal"))  # 0 to 100
-            hits = get(data, ("play", "hits"))  # {"300": 120, "100": 4, "50": 0, "0": 2, ...}; "0" = misses
+            # hits = get(data, ("play", "hits"))  # {"300": 120, "100": 4, "50": 0, "0": 2, ...}; "0" = misses
 
             # HP drains a little on every update, so only compare values in whole steps.
             # Rounded up, so it only counts as 0 when HP is really 0.
-            play_info = (math.ceil(hp), hits["300"], hits["100"], hits["50"], hits["0"])
-            if play_info != last_play_info:
+            # play_info = (math.ceil(hp), hits["300"], hits["100"], hits["50"], hits["0"])
+            if math.ceil(hp) != last_hp:
                 print(
-                    f"{t:7.2f}s    hp {hp:5.1f} | "
-                    f"300: {hits['300']}  100: {hits['100']}  50: {hits['50']}  miss: {hits['0']}"
+                    f"{t:7.2f}s    hp {hp:5.1f}"
                 )
-                last_play_info = play_info
+                last_hp = math.ceil(hp)
             
         # DETECT FAILS
         if fail_detector.update(data):
+            time_detected = time.monotonic() - start
             print(f"{t:7.2f}s  >>> FAIL DETECTED")
+            # TRY F2 PRESS
+            if get(data, ("game", "focused")):
+                # press F2 every 0.2 seconds for 3.6 seconds
+                pressed = 0
+                # time.sleep(3.5)
+                for _ in range(int(3.6/0.2)):
+                    time_now = time.monotonic() - start
+                    print(f"{t:7.2f}s  pressing F2. Elapsed: {time_now - time_detected:7.2f}s")
+                    kb.press_F2(hold_time_s=0.1)
+                    pressed += 1
+                    time.sleep(0.1)
+                print(f"{t:7.2f}s  pressed F2 {pressed} times")
+                # time.sleep(3)
         # PRINT IGNORE REASON IF CHANGED
         if fail_detector.ignore_reason != last_ignore_reason:
             print(f"{t:7.2f}s  fails will currently be ignored: {fail_detector.ignore_reason}")
