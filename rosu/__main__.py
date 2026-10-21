@@ -26,6 +26,12 @@ warned_paths: set[tuple[str, ...]] = set()
 # LISTENING LOOP
 
 for data in listen():
+    # TODO: make this loop atomic with regard to reading from the API data.
+    #       Else, potential issues include: updating part of fail_detector, such
+    #       as detecting a fail, before then skipping the rest of the loop, such as
+    #       the F2-pressing. The detector would then be disarmed, but the fail hasn't
+    #       been acted on, due to unexpected missing data. Fix: read all data
+    #       from the API at the beginning of the loop -> atomic
     try:
         # Seconds since the program started, to see how far apart things happen.
         t = time.monotonic() - start
