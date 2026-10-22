@@ -52,6 +52,11 @@ class FailDetector:
         
 
     def update(self, data: dict) -> bool:
+        """
+        Should be called with every tosu poll update. 
+        
+        Returns True once per fail, in an update where the player fails a map.
+        """
         state = get(data, ("state", "number"))
         
         # NOT IN GAMEPLAY
