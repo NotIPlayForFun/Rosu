@@ -9,7 +9,11 @@ from os import SEEK_CUR
 from pathlib import Path
 import struct
 from typing import Any, BinaryIO
-from rosu.osu_enums import Mods
+# from rosu.osu_enums import Mods
+from osu_enums import Mods
+from datetime import datetime as dt
+from datetime import timedelta, timezone
+
 
 """
 .osr data types
@@ -125,7 +129,12 @@ def read_str(f: BinaryIO) -> str:
     else:
         raise ValueError(f"Unexpected indicator byte. Expected 0x00 or 0x0b, got {indicator_byte:#x}")
 
-# replay = r"C:\Users\Kael\AppData\Local\osu!\Replays\NotIPlayForFun - Imagine Dragons - Warriors [1000lp challenger] (2021-06-30) Osu.osr"
+
+def _ticks_to_datetime(ticks: int) -> dt:
+    """Convert .NET ticks to a datetime object."""
+    # .NET ticks are 100-nanosecond intervals since 0001-01-01 00:00:00 UTC
+    epoch = dt(1, 1, 1, tzinfo=timezone.utc)
+    return epoch + timedelta(microseconds=ticks / 10)
 
 @dataclass(frozen=True)
 class OsrFile:
@@ -179,7 +188,8 @@ class OsrFile:
     represents the amount of life you have at the given time 
     (0 = life bar is empty, 1= life bar is full)"""
     timestamp: int
-    """osu! wiki: Time stamp (Windows ticks)"""
+    """osu! wiki: Time stamp (Windows ticks)
+    note: from testing, this appears to be UTC-based ticks"""
     length_bytes: int
     """osu! wiki: Length in bytes of compressed replay data"""
     compressed_replay_data_offset: int
@@ -190,6 +200,11 @@ class OsrFile:
     """osu! wiki: Online Score ID"""
     additional_mod_info: float | None
     """osu! wiki: Additional mod information. Only present if Target Practice is enabled."""
+    
+    @property
+    def datetime(self) -> dt:
+        """Convert the timestamp (Windows ticks) to a datetime object."""
+        return _ticks_to_datetime(self.timestamp)
 
 def read_osr_meta(f: Path) -> OsrFile:
     """Returns a `OsrFile` object containing every .osr-field listed on
@@ -252,5 +267,8 @@ def read_osr_meta(f: Path) -> OsrFile:
     return osr_file
 
 if __name__ == "__main__":
-    # osr_file = read_osr_meta(Path(replay))
+    replay = r"C:\Users\Kael\AppData\Local\osu!\Replays\NotIPlayForFun - Imagine Dragons - Warriors [1000lp challenger] (2021-06-30) Osu.osr"
+    osr_file = read_osr_meta(Path(replay))
+    print(dt.fromtimestamp(Path(replay).stat().st_mtime, timezone.utc))
+    print(osr_file.datetime)
     pass
